@@ -93,6 +93,26 @@ with st.form("form_reserva"):
                     insertar_reserva(empleado, vehiculo, inicio.isoformat(), fin.isoformat(), motivo)
                     st.success("✅ Reserva registrada.")
 
+st.header("🔧 Bloquear vehículo por mantenimiento")
+with st.form("form_mantenimiento"):
+    vehiculo_m = st.selectbox("Vehículo", vehiculos[1:], key="vehiculo_m")
+    inicio_fecha_m = st.date_input("Fecha inicio", key="fecha_inicio_m")
+    inicio_hora_m = st.time_input("Hora inicio", key="hora_inicio_m", value=None)
+    fin_fecha_m = st.date_input("Fecha fin", key="fecha_fin_m")
+    fin_hora_m = st.time_input("Hora fin", key="hora_fin_m", value=None)
+    motivo_m = st.text_input("Motivo", key="motivo_m")
+    if st.form_submit_button("Añadir bloqueo"):
+        if not inicio_hora_m or not fin_hora_m:
+            st.error("Debes indicar fecha y hora completas.")
+        else:
+            inicio_m = datetime.combine(inicio_fecha_m, inicio_hora_m)
+            fin_m = datetime.combine(fin_fecha_m, fin_hora_m)
+            if inicio_m >= fin_m:
+                st.error("La fecha/hora de inicio debe ser anterior a la de fin.")
+            else:
+                insertar_mantenimiento(vehiculo_m, inicio_m.isoformat(), fin_m.isoformat(), motivo_m)
+                st.success("🛠 Bloqueo añadido.")
+
 st.header("📊 Calendario")
 reservas = obtener_reservas()
 mantenimiento = obtener_mantenimientos()
@@ -121,3 +141,20 @@ calendar(events=eventos, options={
     "slotMaxTime": "21:00:00",
     "height": 600
 })
+
+st.header("❌ Anular reserva")
+if not reservas.empty:
+    reservas["texto"] = reservas.apply(lambda r: f"{r['empleado']} - {r['vehiculo']} ({r['inicio']} a {r['fin']})", axis=1)
+    seleccion = st.selectbox("Selecciona una reserva", ["Seleccionar"] + reservas["texto"].tolist())
+    if seleccion != "Seleccionar":
+        id_reserva = reservas[reservas["texto"] == seleccion]["id"].values[0]
+        if st.button("Anular reserva"):
+            eliminar_reserva(id_reserva)
+            st.success("✅ Reserva anulada.")
+else:
+    st.info("No hay reservas disponibles.")
+
+with st.expander("📦 Exportar datos"):
+    col1, col2 = st.columns(2)
+    col1.download_button("Exportar reservas", reservas.to_csv(index=False).encode("utf-8"), "reservas.csv")
+    col2.download_button("Exportar mantenimiento", mantenimiento.to_csv(index=False).encode("utf-8"), "mantenimiento.csv")
