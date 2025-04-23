@@ -5,10 +5,9 @@ import sqlite3
 from datetime import datetime
 from streamlit_calendar import calendar
 
-# --- Forzar recarga si se encuentra parámetro 'reload' en la URL ---
-params = st.experimental_get_query_params()
-if 'reload' in params:
-    st.experimental_set_query_params()  # Limpiar para futuras recargas
+# --- Recarga forzada mediante parámetros de URL ---
+if st.query_params.get("recarga") == "1":
+    st.query_params.clear()
 
 DB_PATH = "reservas.db"
 
@@ -155,7 +154,7 @@ if not reservas.empty:
         if st.button("Anular reserva"):
             eliminar_reserva(id_reserva)
             st.success("✅ Reserva anulada correctamente.")
-            st.experimental_set_query_params(reload="1")  # Forzar recarga por URL
+            st.query_params["recarga"] = "1"
 else:
     st.info("No hay reservas disponibles.")
 
