@@ -18,16 +18,14 @@ def init_db():
 def insertar_reserva(empleado, vehiculo, inicio, fin, motivo):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("INSERT INTO reservas (empleado, vehiculo, inicio, fin, motivo) VALUES (?, ?, ?, ?, ?)",
-              (empleado, vehiculo, inicio, fin, motivo))
+    c.execute("INSERT INTO reservas (empleado, vehiculo, inicio, fin, motivo) VALUES (?, ?, ?, ?, ?)", (empleado, vehiculo, inicio, fin, motivo))
     conn.commit()
     conn.close()
 
 def insertar_mantenimiento(vehiculo, inicio, fin, motivo):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("INSERT INTO mantenimiento (vehiculo, inicio, fin, motivo) VALUES (?, ?, ?, ?)",
-              (vehiculo, inicio, fin, motivo))
+    c.execute("INSERT INTO mantenimiento (vehiculo, inicio, fin, motivo) VALUES (?, ?, ?, ?)", (vehiculo, inicio, fin, motivo))
     conn.commit()
     conn.close()
 
@@ -70,9 +68,9 @@ with st.form("form_reserva"):
     inicio_hora = st.time_input("Hora de inicio", value=None)
     fin_fecha = st.date_input("Fecha de fin")
     fin_hora = st.time_input("Hora de fin", value=None)
-    motivo = st.text_input("Motivo (opcional)")
+    motivo = st.text_input("Motivo")
     if st.form_submit_button("Reservar"):
-        if empleado == "Seleccionar" or vehiculo == "Seleccionar" or not inicio_hora or not fin_hora:
+        if empleado == "Seleccionar" or vehiculo == "Seleccionar" or not inicio_hora or not fin_hora or not motivo.strip():
             st.error("Debes completar todos los campos.")
         else:
             inicio = datetime.combine(inicio_fecha, inicio_hora)
@@ -102,8 +100,8 @@ with st.form("form_mantenimiento"):
     fin_hora_m = st.time_input("Hora fin", key="hora_fin_m", value=None)
     motivo_m = st.text_input("Motivo", key="motivo_m")
     if st.form_submit_button("Añadir bloqueo"):
-        if not inicio_hora_m or not fin_hora_m:
-            st.error("Debes indicar fecha y hora completas.")
+        if not inicio_hora_m or not fin_hora_m or not motivo_m.strip():
+            st.error("Debes indicar todos los campos.")
         else:
             inicio_m = datetime.combine(inicio_fecha_m, inicio_hora_m)
             fin_m = datetime.combine(fin_fecha_m, fin_hora_m)
@@ -120,7 +118,7 @@ eventos = []
 
 for _, row in reservas.iterrows():
     eventos.append({
-        "title": f"{row['vehiculo']} - {row['empleado']}",
+        "title": f"{row['vehiculo']} - {row['empleado']} ({row['motivo']})",
         "start": row["inicio"].isoformat(),
         "end": row["fin"].isoformat(),
         "color": colores_vehiculo.get(row["vehiculo"], "#1f77b4")
@@ -128,7 +126,7 @@ for _, row in reservas.iterrows():
 
 for _, row in mantenimiento.iterrows():
     eventos.append({
-        "title": f"Mantenimiento - {row['vehiculo']}",
+        "title": f"Mantenimiento - {row['vehiculo']} ({row['motivo']})",
         "start": row["inicio"].isoformat(),
         "end": row["fin"].isoformat(),
         "color": "#808080"
@@ -137,6 +135,7 @@ for _, row in mantenimiento.iterrows():
 calendar(events=eventos, options={
     "initialView": "timeGridWeek",
     "locale": "es",
+    "firstDay": 1,
     "slotMinTime": "07:00:00",
     "slotMaxTime": "21:00:00",
     "height": 600
@@ -150,7 +149,8 @@ if not reservas.empty:
         id_reserva = reservas[reservas["texto"] == seleccion]["id"].values[0]
         if st.button("Anular reserva"):
             eliminar_reserva(id_reserva)
-            st.success("✅ Reserva anulada.")
+            st.success("✅ Reserva anulada correctamente.")
+            st.experimental_rerun()
 else:
     st.info("No hay reservas disponibles.")
 
