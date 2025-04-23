@@ -35,6 +35,14 @@ def insertar_reserva(empleado, vehiculo, inicio, fin, motivo):
     conn.commit()
     conn.close()
 
+def insertar_mantenimiento(vehiculo, inicio, fin, motivo):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("INSERT INTO mantenimiento (vehiculo, inicio, fin, motivo) VALUES (?, ?, ?, ?)",
+              (vehiculo, inicio, fin, motivo))
+    conn.commit()
+    conn.close()
+
 def eliminar_reserva(reserva_id):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -54,6 +62,7 @@ empleados = ["Seleccionar"] + sorted([
 vehiculos = ["Seleccionar", "Micra", "Sandero", "Duster"]
 colores_vehiculo = {"Micra": "#1f77b4", "Sandero": "#2ca02c", "Duster": "#ff7f0e"}
 
+# Formulario de nueva reserva
 st.header("📅 Nueva reserva")
 with st.form("form_reserva"):
     empleado = st.selectbox("Empleado", empleados, index=0)
@@ -76,6 +85,29 @@ with st.form("form_reserva"):
                 st.success("✅ Reserva registrada.")
                 st.rerun()
 
+# Formulario de mantenimiento
+st.header("🔧 Bloquear vehículo por mantenimiento")
+with st.form("form_mantenimiento"):
+    vehiculo_m = st.selectbox("Vehículo", vehiculos[1:], key="vehiculo_m")
+    inicio_fecha_m = st.date_input("Fecha inicio", key="fecha_inicio_m")
+    inicio_hora_m = st.time_input("Hora inicio", key="hora_inicio_m", value=None)
+    fin_fecha_m = st.date_input("Fecha fin", key="fecha_fin_m")
+    fin_hora_m = st.time_input("Hora fin", key="hora_fin_m", value=None)
+    motivo_m = st.text_input("Motivo", key="motivo_m")
+    if st.form_submit_button("Añadir bloqueo"):
+        if not inicio_hora_m or not fin_hora_m or not motivo_m.strip():
+            st.error("Debes indicar todos los campos.")
+        else:
+            inicio_m = datetime.combine(inicio_fecha_m, inicio_hora_m)
+            fin_m = datetime.combine(fin_fecha_m, fin_hora_m)
+            if inicio_m >= fin_m:
+                st.error("La fecha/hora de inicio debe ser anterior a la de fin.")
+            else:
+                insertar_mantenimiento(vehiculo_m, inicio_m.isoformat(), fin_m.isoformat(), motivo_m)
+                st.success("🛠 Bloqueo añadido.")
+                st.rerun()
+
+# Anular reserva
 st.header("❌ Anular reserva")
 reservas = obtener_reservas()
 if not reservas.empty:
@@ -90,10 +122,11 @@ if not reservas.empty:
 else:
     st.info("No hay reservas disponibles.")
 
-# Cargar datos actualizados tras anulación
+# Recargar datos para mostrar calendario actualizado
 reservas = obtener_reservas()
 mantenimiento = obtener_mantenimientos()
 
+# Calendario
 st.header("📊 Calendario")
 eventos = []
 for _, row in reservas.iterrows():
@@ -119,3 +152,9 @@ calendar(events=eventos, options={
     "slotMaxTime": "21:00:00",
     "height": 600
 })
+
+# Exportación
+with st.expander("📦 Exportar datos"):
+    col1, col2 = st.columns(2)
+    col1.download_button("Exportar reservas", reservas.to_csv(index=False).encode("utf-8"), "reservas.csv")
+    col2.download_button("Exportar mantenimiento", mantenimiento.to_csv(index=False).encode("utf-8"), "mantenimiento.csv")
