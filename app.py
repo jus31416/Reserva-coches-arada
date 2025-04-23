@@ -5,6 +5,11 @@ import sqlite3
 from datetime import datetime
 from streamlit_calendar import calendar
 
+# --- Manejo de recarga tras anulación ---
+if "recargar" in st.session_state:
+    del st.session_state["recargar"]
+    st.rerun()
+
 DB_PATH = "reservas.db"
 
 def init_db():
@@ -150,7 +155,7 @@ if not reservas.empty:
         if st.button("Anular reserva"):
             eliminar_reserva(id_reserva)
             st.success("✅ Reserva anulada correctamente.")
-            st.rerun()
+            st.session_state["recargar"] = True
 else:
     st.info("No hay reservas disponibles.")
 
