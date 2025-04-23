@@ -5,10 +5,6 @@ import sqlite3
 from datetime import datetime
 from streamlit_calendar import calendar
 
-# --- Recarga forzada mediante parámetros de URL ---
-if st.query_params.get("recarga") == "1":
-    st.query_params.clear()
-
 DB_PATH = "reservas.db"
 
 def init_db():
@@ -115,9 +111,25 @@ with st.form("form_mantenimiento"):
                 insertar_mantenimiento(vehiculo_m, inicio_m.isoformat(), fin_m.isoformat(), motivo_m)
                 st.success("🛠 Bloqueo añadido.")
 
-st.header("📊 Calendario")
+st.header("❌ Anular reserva")
+reservas = obtener_reservas()
+if not reservas.empty:
+    reservas["texto"] = reservas.apply(lambda r: f"{r['empleado']} - {r['vehiculo']} ({r['inicio']} a {r['fin']})", axis=1)
+    seleccion = st.selectbox("Selecciona una reserva", ["Seleccionar"] + reservas["texto"].tolist())
+    if seleccion != "Seleccionar":
+        id_reserva = reservas[reservas["texto"] == seleccion]["id"].values[0]
+        if st.button("Anular reserva"):
+            eliminar_reserva(id_reserva)
+            st.success("✅ Reserva anulada correctamente.")
+            st.rerun()
+else:
+    st.info("No hay reservas disponibles.")
+
+# --- Recargar datos tras posible anulación ---
 reservas = obtener_reservas()
 mantenimiento = obtener_mantenimientos()
+
+st.header("📊 Calendario")
 eventos = []
 
 for _, row in reservas.iterrows():
@@ -144,19 +156,6 @@ calendar(events=eventos, options={
     "slotMaxTime": "21:00:00",
     "height": 600
 })
-
-st.header("❌ Anular reserva")
-if not reservas.empty:
-    reservas["texto"] = reservas.apply(lambda r: f"{r['empleado']} - {r['vehiculo']} ({r['inicio']} a {r['fin']})", axis=1)
-    seleccion = st.selectbox("Selecciona una reserva", ["Seleccionar"] + reservas["texto"].tolist())
-    if seleccion != "Seleccionar":
-        id_reserva = reservas[reservas["texto"] == seleccion]["id"].values[0]
-        if st.button("Anular reserva"):
-            eliminar_reserva(id_reserva)
-            st.success("✅ Reserva anulada correctamente.")
-            st.query_params["recarga"] = "1"
-else:
-    st.info("No hay reservas disponibles.")
 
 with st.expander("📦 Exportar datos"):
     col1, col2 = st.columns(2)
