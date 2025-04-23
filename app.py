@@ -150,7 +150,7 @@ if not reservas.empty:
         if st.button("Anular reserva"):
             eliminar_reserva(id_reserva)
             st.success("✅ Reserva anulada correctamente.")
-            st.experimental_rerun()
+            st.rerun()
 else:
     st.info("No hay reservas disponibles.")
 
