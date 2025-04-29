@@ -1,56 +1,52 @@
 
 import streamlit as st
 import pandas as pd
-import sqlite3
+import gspread
+from gspread_dataframe import set_with_dataframe, get_as_dataframe
+from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 from streamlit_calendar import calendar
 
-DB_PATH = "reservas.db"
+# --- CONFIGURACIÓN GOOGLE SHEETS ---
+SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+SHEET_NAME = "reservas_arada"  # Cambia si tu hoja se llama distinto
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("CREATE TABLE IF NOT EXISTS reservas (id INTEGER PRIMARY KEY, empleado TEXT, vehiculo TEXT, inicio TEXT, fin TEXT, motivo TEXT)")
-    c.execute("CREATE TABLE IF NOT EXISTS mantenimiento (id INTEGER PRIMARY KEY, vehiculo TEXT, inicio TEXT, fin TEXT, motivo TEXT)")
-    conn.commit()
-    conn.close()
+@st.cache_resource
+def autenticar_gspread():
+    creds = ServiceAccountCredentials.from_json_keyfile_name("credenciales.json", SCOPE)
+    cliente = gspread.authorize(creds)
+    return cliente
 
-def obtener_reservas():
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT * FROM reservas", conn, parse_dates=["inicio", "fin"])
-    conn.close()
+cliente = autenticar_gspread()
+hoja = cliente.open(SHEET_NAME)
+sheet_reservas = hoja.worksheet("Sheet1")
+sheet_mantenimiento = hoja.worksheet("Sheet2")
+
+def cargar_reservas():
+    df = get_as_dataframe(sheet_reservas, evaluate_formulas=True)
+    df = df.dropna(how="all")  # elimina filas vacías
+    if not df.empty:
+        df["Inicio"] = pd.to_datetime(df["Inicio"])
+        df["Fin"] = pd.to_datetime(df["Fin"])
     return df
 
-def obtener_mantenimientos():
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT * FROM mantenimiento", conn, parse_dates=["inicio", "fin"])
-    conn.close()
+def cargar_mantenimientos():
+    df = get_as_dataframe(sheet_mantenimiento, evaluate_formulas=True)
+    df = df.dropna(how="all")
+    if not df.empty:
+        df["Inicio"] = pd.to_datetime(df["Inicio"])
+        df["Fin"] = pd.to_datetime(df["Fin"])
     return df
 
-def insertar_reserva(empleado, vehiculo, inicio, fin, motivo):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("INSERT INTO reservas (empleado, vehiculo, inicio, fin, motivo) VALUES (?, ?, ?, ?, ?)",
-              (empleado, vehiculo, inicio, fin, motivo))
-    conn.commit()
-    conn.close()
+def guardar_reservas(df):
+    sheet_reservas.clear()
+    set_with_dataframe(sheet_reservas, df)
 
-def insertar_mantenimiento(vehiculo, inicio, fin, motivo):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("INSERT INTO mantenimiento (vehiculo, inicio, fin, motivo) VALUES (?, ?, ?, ?)",
-              (vehiculo, inicio, fin, motivo))
-    conn.commit()
-    conn.close()
+def guardar_mantenimientos(df):
+    sheet_mantenimiento.clear()
+    set_with_dataframe(sheet_mantenimiento, df)
 
-def eliminar_reserva(reserva_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("DELETE FROM reservas WHERE id = ?", (int(reserva_id),))
-    conn.commit()
-    conn.close()
-
-init_db()
+# --- CONFIGURACIÓN APP ---
 st.set_page_config(page_title="Gestor de reservas de coches arada", layout="wide")
 st.title("🚗 Gestor de reservas de coches arada")
 
@@ -62,7 +58,11 @@ empleados = ["Seleccionar"] + sorted([
 vehiculos = ["Seleccionar", "Micra", "Sandero", "Duster"]
 colores_vehiculo = {"Micra": "#1f77b4", "Sandero": "#2ca02c", "Duster": "#ff7f0e"}
 
-# Formulario de nueva reserva
+# Cargar datos
+reservas_df = cargar_reservas()
+mantenimiento_df = cargar_mantenimientos()
+
+# NUEVA RESERVA
 st.header("📅 Nueva reserva")
 with st.form("form_reserva"):
     empleado = st.selectbox("Empleado", empleados, index=0)
@@ -81,11 +81,26 @@ with st.form("form_reserva"):
             if inicio >= fin:
                 st.error("La fecha/hora de inicio debe ser anterior a la de fin.")
             else:
-                insertar_reserva(empleado, vehiculo, inicio.isoformat(), fin.isoformat(), motivo)
-                st.success("✅ Reserva registrada.")
-                st.rerun()
+                conflicto = reservas_df[(reservas_df["Vehículo"] == vehiculo) & ((reservas_df["Inicio"] < fin) & (reservas_df["Fin"] > inicio))]
+                mantenimiento_conf = mantenimiento_df[(mantenimiento_df["Vehículo"] == vehiculo) & ((mantenimiento_df["Inicio"] < fin) & (mantenimiento_df["Fin"] > inicio))]
+                if not conflicto.empty:
+                    st.error("❌ Ya hay una reserva en ese intervalo.")
+                elif not mantenimiento_conf.empty:
+                    st.error("🔧 El vehículo está bloqueado por mantenimiento.")
+                else:
+                    nueva = pd.DataFrame([{
+                        "Empleado": empleado,
+                        "Vehículo": vehiculo,
+                        "Inicio": inicio,
+                        "Fin": fin,
+                        "Motivo": motivo
+                    }])
+                    reservas_df = pd.concat([reservas_df, nueva], ignore_index=True)
+                    guardar_reservas(reservas_df)
+                    st.success("✅ Reserva realizada correctamente.")
+                    st.rerun()
 
-# Formulario de mantenimiento
+# MANTENIMIENTO
 st.header("🔧 Bloquear vehículo por mantenimiento")
 with st.form("form_mantenimiento"):
     vehiculo_m = st.selectbox("Vehículo", vehiculos[1:], key="vehiculo_m")
@@ -96,51 +111,53 @@ with st.form("form_mantenimiento"):
     motivo_m = st.text_input("Motivo", key="motivo_m")
     if st.form_submit_button("Añadir bloqueo"):
         if not inicio_hora_m or not fin_hora_m or not motivo_m.strip():
-            st.error("Debes indicar todos los campos.")
+            st.error("Debes completar todos los campos.")
         else:
             inicio_m = datetime.combine(inicio_fecha_m, inicio_hora_m)
             fin_m = datetime.combine(fin_fecha_m, fin_hora_m)
             if inicio_m >= fin_m:
                 st.error("La fecha/hora de inicio debe ser anterior a la de fin.")
             else:
-                insertar_mantenimiento(vehiculo_m, inicio_m.isoformat(), fin_m.isoformat(), motivo_m)
-                st.success("🛠 Bloqueo añadido.")
+                nueva_m = pd.DataFrame([{
+                    "Vehículo": vehiculo_m,
+                    "Inicio": inicio_m,
+                    "Fin": fin_m,
+                    "Motivo": motivo_m
+                }])
+                mantenimiento_df = pd.concat([mantenimiento_df, nueva_m], ignore_index=True)
+                guardar_mantenimientos(mantenimiento_df)
+                st.success("🛠️ Mantenimiento registrado.")
                 st.rerun()
 
-# Anular reserva
+# ANULAR RESERVA
 st.header("❌ Anular reserva")
-reservas = obtener_reservas()
-if not reservas.empty:
-    reservas["texto"] = reservas.apply(lambda r: f"{r['empleado']} - {r['vehiculo']} ({r['inicio']} a {r['fin']})", axis=1)
-    seleccion = st.selectbox("Selecciona una reserva", ["Seleccionar"] + reservas["texto"].tolist())
+if not reservas_df.empty:
+    reservas_df["Resumen"] = reservas_df.apply(lambda row: f"{row['Empleado']} - {row['Vehículo']} ({row['Inicio']} - {row['Fin']})", axis=1)
+    seleccion = st.selectbox("Selecciona una reserva", ["Seleccionar"] + reservas_df["Resumen"].tolist())
     if seleccion != "Seleccionar":
-        id_reserva = int(reservas[reservas["texto"] == seleccion]["id"].values[0])
         if st.button("Anular reserva"):
-            eliminar_reserva(id_reserva)
-            st.success("✅ Reserva anulada correctamente.")
+            reservas_df = reservas_df[reservas_df["Resumen"] != seleccion].drop(columns=["Resumen"])
+            guardar_reservas(reservas_df)
+            st.success("✅ Reserva anulada.")
             st.rerun()
 else:
     st.info("No hay reservas disponibles.")
 
-# Recargar datos para mostrar calendario actualizado
-reservas = obtener_reservas()
-mantenimiento = obtener_mantenimientos()
-
-# Calendario
-st.header("📊 Calendario")
+# CALENDARIO
+st.header("📊 Calendario semanal de reservas")
 eventos = []
-for _, row in reservas.iterrows():
+for _, row in reservas_df.iterrows():
     eventos.append({
-        "title": f"{row['vehiculo']} - {row['empleado']} ({row['motivo']})",
-        "start": row["inicio"].isoformat(),
-        "end": row["fin"].isoformat(),
-        "color": colores_vehiculo.get(row["vehiculo"], "#1f77b4")
+        "title": f"{row['Vehículo']} - {row['Empleado']} ({row['Motivo']})",
+        "start": row["Inicio"].isoformat(),
+        "end": row["Fin"].isoformat(),
+        "color": colores_vehiculo.get(row["Vehículo"], "#1f77b4")
     })
-for _, row in mantenimiento.iterrows():
+for _, row in mantenimiento_df.iterrows():
     eventos.append({
-        "title": f"Mantenimiento - {row['vehiculo']} ({row['motivo']})",
-        "start": row["inicio"].isoformat(),
-        "end": row["fin"].isoformat(),
+        "title": f"Mantenimiento - {row['Vehículo']} ({row['Motivo']})",
+        "start": row["Inicio"].isoformat(),
+        "end": row["Fin"].isoformat(),
         "color": "#808080"
     })
 
@@ -152,9 +169,3 @@ calendar(events=eventos, options={
     "slotMaxTime": "21:00:00",
     "height": 600
 })
-
-# Exportación
-with st.expander("📦 Exportar datos"):
-    col1, col2 = st.columns(2)
-    col1.download_button("Exportar reservas", reservas.to_csv(index=False).encode("utf-8"), "reservas.csv")
-    col2.download_button("Exportar mantenimiento", mantenimiento.to_csv(index=False).encode("utf-8"), "mantenimiento.csv")
