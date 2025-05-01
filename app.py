@@ -1,71 +1,57 @@
 
 import streamlit as st
-st.set_page_config(page_title="Gestor de reservas de coches arada", layout="wide")
-
 import pandas as pd
 import gspread
-from gspread_dataframe import set_with_dataframe, get_as_dataframe
-from oauth2client.service_account import ServiceAccountCredentials
-from datetime import datetime
-from streamlit_calendar import calendar
 import json
+from oauth2client.service_account import ServiceAccountCredentials
 
-st.write("🔍 Cargando aplicación...")
+st.set_page_config(page_title="Depuración conexión Google Sheets", layout="wide")
+st.title("🔍 Diagnóstico conexión con Google Sheets")
 
-# --- CONFIGURACIÓN GOOGLE SHEETS ---
-SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-SHEET_NAME = "reservas_arada"
-
-@st.cache_resource
-def autenticar_gspread():
-    creds_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, SCOPE)
-    cliente = gspread.authorize(creds)
-    return cliente
-
+# Paso 1: leer credenciales y conectarse
+st.subheader("1. Autenticación con Google Sheets")
 try:
-    cliente = autenticar_gspread()
-    hoja = cliente.open(SHEET_NAME)
-    sheet_reservas = hoja.worksheet("Sheet1")
-    sheet_mantenimiento = hoja.worksheet("Sheet2")
+    SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    SHEET_NAME = "reservas_arada"
+    creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPE)
+    client = gspread.authorize(creds)
+    st.success("✅ Conexión con Google autorizada.")
 except Exception as e:
-    st.error("❌ Error al conectarse con Google Sheets")
+    st.error("❌ Error durante la autenticación:")
     st.exception(e)
     st.stop()
 
-def cargar_reservas():
-    df = get_as_dataframe(sheet_reservas, evaluate_formulas=True).dropna(how="all")
-    if not df.empty:
-        df["Inicio"] = pd.to_datetime(df["Inicio"])
-        df["Fin"] = pd.to_datetime(df["Fin"])
-    return df
+# Paso 2: abrir el documento
+st.subheader("2. Acceso al documento")
+try:
+    doc = client.open(SHEET_NAME)
+    st.success(f"✅ Documento '{SHEET_NAME}' abierto correctamente.")
+    sheet_list = [sh.title for sh in doc.worksheets()]
+    st.write("Hojas encontradas:", sheet_list)
+except Exception as e:
+    st.error("❌ No se pudo abrir el documento o listar las hojas.")
+    st.exception(e)
+    st.stop()
 
-def cargar_mantenimientos():
-    df = get_as_dataframe(sheet_mantenimiento, evaluate_formulas=True).dropna(how="all")
-    if not df.empty:
-        df["Inicio"] = pd.to_datetime(df["Inicio"])
-        df["Fin"] = pd.to_datetime(df["Fin"])
-    return df
+# Paso 3: leer Sheet1 y Sheet2
+st.subheader("3. Lectura de hojas")
+try:
+    ws1 = doc.worksheet("Sheet1")
+    df1 = pd.DataFrame(ws1.get_all_records())
+    st.write("📄 Contenido de Sheet1 (Reservas):")
+    st.dataframe(df1)
+except Exception as e:
+    st.error("❌ Error al leer Sheet1")
+    st.exception(e)
 
-def guardar_reservas(df):
-    sheet_reservas.clear()
-    set_with_dataframe(sheet_reservas, df)
+try:
+    ws2 = doc.worksheet("Sheet2")
+    df2 = pd.DataFrame(ws2.get_all_records())
+    st.write("📄 Contenido de Sheet2 (Mantenimiento):")
+    st.dataframe(df2)
+except Exception as e:
+    st.error("❌ Error al leer Sheet2")
+    st.exception(e)
 
-def guardar_mantenimientos(df):
-    sheet_mantenimiento.clear()
-    set_with_dataframe(sheet_mantenimiento, df)
-
-st.title("🚗 Gestor de reservas de coches arada")
-
-empleados = ["Seleccionar"] + sorted([
-    "Antonio José", "Antonio Miguel", "Berta", "Encar", "Felipe",
-    "Jose David", "Juanjo", "Juanma Fdez.", "Juanma Pelegrín", "Justa",
-    "Mari Huertas", "Mayca", "Miguel Ángel", "Pedro", "Raúl"
-])
-vehiculos = ["Seleccionar", "Micra", "Sandero", "Duster"]
-colores_vehiculo = {"Micra": "#1f77b4", "Sandero": "#2ca02c", "Duster": "#ff7f0e"}
-
-reservas_df = cargar_reservas()
-mantenimiento_df = cargar_mantenimientos()
-
-# (El resto del código sigue igual al anterior para reserva, mantenimiento, anulación y calendario)
+st.info("👆 Si ves errores arriba, revisa que ambas hojas existan y tengan columnas.")
