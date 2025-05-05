@@ -1,4 +1,6 @@
 streamlit
 pandas
 streamlit-calendar==1.2.1
-
+gspread
+oauth2client
+gspread_dataframe
